@@ -1,0 +1,1688 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>衣物去漬小達人｜居家洗衣課程 3D 互動教材</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js r128 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Google Fonts: Noto Sans TC 清晰黑體，符合易讀性原則 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet" />
+
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Noto Sans TC', sans-serif;
+      background-color: #f0f7ff;
+      color: #1e293b;
+    }
+
+    /* 70:30 主版面配置 (平板橫向 / 桌機預設 70% 左操作區 : 30% 右易讀任務面板) */
+    #app-layout {
+      display: flex;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #viewport-pane {
+      position: relative;
+      width: 70%;
+      height: 100%;
+      background: linear-gradient(180deg, #dbeafe 0%, #eff6ff 100%);
+      overflow: hidden;
+    }
+
+    #control-pane {
+      width: 30%;
+      height: 100%;
+      background-color: #ffffff;
+      border-left: 4px solid #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      z-index: 20;
+      box-shadow: -6px 0 24px rgba(15, 23, 42, 0.08);
+    }
+
+    /* 直向小螢幕自動微調為上下 62:38，確保平板直放也能操作 */
+    @media (max-width: 767px) and (orientation: portrait) {
+      #app-layout {
+        flex-direction: column;
+      }
+      #viewport-pane {
+        width: 100%;
+        height: 58%;
+      }
+      #control-pane {
+        width: 100%;
+        height: 42%;
+        border-left: none;
+        border-top: 4px solid #cbd5e1;
+      }
+    }
+
+    #three-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    /* 3D 物件上方懸浮易讀提示標籤 */
+    .callout-badge {
+      position: absolute;
+      transform: translate(-50%, -100%);
+      pointer-events: auto;
+      cursor: pointer;
+      z-index: 15;
+      transition: transform 0.15s ease, opacity 0.2s ease;
+      animation: floatBounce 1.5s infinite ease-in-out;
+    }
+
+    .callout-badge:active {
+      transform: translate(-50%, -100%) scale(0.93);
+    }
+
+    @keyframes floatBounce {
+      0%, 100% { margin-top: 0px; }
+      50% { margin-top: -8px; }
+    }
+
+    /* 柔和發光按鈕動效 */
+    .btn-3d {
+      transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.2s ease;
+      box-shadow: 0 5px 0 rgba(15, 23, 42, 0.18);
+    }
+    .btn-3d:active:not(:disabled) {
+      transform: translateY(4px);
+      box-shadow: 0 1px 0 rgba(15, 23, 42, 0.18);
+    }
+    .btn-3d:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    /* 易讀進度脈衝框 */
+    .active-step-card {
+      border: 3px solid #2563eb;
+      background-color: #eff6ff;
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.14);
+    }
+
+    /* 自訂捲軸 */
+    #control-pane::-webkit-scrollbar {
+      width: 8px;
+    }
+    #control-pane::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 999px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 雙欄主畫面：左 70% 3D 操作區 ｜ 右 30% 易讀任務分析區 -->
+  <div id="app-layout">
+    
+    <!-- 左側 70%：3D 桌面操作空間 -->
+    <main id="viewport-pane" aria-label="3D 衣物去漬操作區">
+      <canvas id="three-canvas"></canvas>
+
+      <!-- 左上角：課程標題與得分星星 -->
+      <div class="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-2 pointer-events-none">
+        <div class="bg-white/95 backdrop-blur border-2 border-blue-300 rounded-2xl px-4 py-2 shadow-md flex items-center gap-2.5">
+          <span class="text-2xl" role="img" aria-label="衣服">👕</span>
+          <div>
+            <h1 class="text-lg md:text-xl font-black text-slate-800 leading-tight">衣物去漬小達人</h1>
+            <p class="text-xs md:text-sm font-bold text-blue-700" id="round-indicator">第 1 / 3 題</p>
+          </div>
+        </div>
+
+        <!-- 星星獎勵條 -->
+        <div id="stars-bar" class="bg-amber-50/95 border-2 border-amber-300 rounded-2xl px-3.5 py-2 shadow-md flex items-center gap-1.5" aria-label="已獲得星星">
+          <!-- 動態產生星星 -->
+        </div>
+      </div>
+
+      <!-- 右上角：易讀工具列 (步驟小幫手 / 語音開關 / 回首頁) -->
+      <div class="absolute top-3 right-3 z-20 flex flex-wrap justify-end gap-2">
+        <button id="btn-helper" type="button"
+          class="btn-3d bg-amber-400 hover:bg-amber-300 text-slate-900 font-black text-base md:text-lg px-3.5 py-2.5 rounded-2xl border-2 border-amber-600 flex items-center gap-1.5">
+          <span>📖</span>
+          <span>步驟小幫手</span>
+        </button>
+
+        <button id="btn-tts-toggle" type="button"
+          class="btn-3d bg-emerald-500 hover:bg-emerald-400 text-white font-black text-base md:text-lg px-3.5 py-2.5 rounded-2xl border-2 border-emerald-700 flex items-center gap-1.5">
+          <span id="tts-icon">🔊</span>
+          <span id="tts-label">語音開</span>
+        </button>
+
+        <button id="btn-home" type="button"
+          class="btn-3d bg-white hover:bg-slate-100 text-slate-800 font-black text-base md:text-lg px-3.5 py-2.5 rounded-2xl border-2 border-slate-400 flex items-center gap-1.5">
+          <span>🏠</span>
+          <span>回首頁</span>
+        </button>
+      </div>
+
+      <!-- 3D 物件投影懸浮標籤 (引導學生直接在 70% 區域點選物品) -->
+      <div id="callout-shirt" class="callout-badge hidden" role="button" tabindex="0">
+        <div class="bg-blue-600 text-white font-black text-lg md:text-xl px-4 py-2 rounded-2xl border-4 border-white shadow-xl flex items-center gap-2 whitespace-nowrap">
+          <span>👆</span>
+          <span id="callout-shirt-text">點這裡：把衣服放平</span>
+        </div>
+        <div class="w-4 h-4 bg-blue-600 border-r-4 border-b-4 border-white rotate-45 mx-auto -mt-2"></div>
+      </div>
+
+      <div id="callout-pen" class="callout-badge hidden" role="button" tabindex="0">
+        <div class="bg-rose-600 text-white font-black text-lg md:text-xl px-4 py-2 rounded-2xl border-4 border-white shadow-xl flex items-center gap-2 whitespace-nowrap">
+          <span>👆</span>
+          <span id="callout-pen-text">點這裡：拿去漬筆</span>
+        </div>
+        <div class="w-4 h-4 bg-rose-600 border-r-4 border-b-4 border-white rotate-45 mx-auto -mt-2"></div>
+      </div>
+
+      <div id="callout-stain" class="callout-badge hidden" role="button" tabindex="0">
+        <div class="bg-amber-500 text-slate-950 font-black text-lg md:text-xl px-4 py-2 rounded-2xl border-4 border-white shadow-xl flex items-center gap-2 whitespace-nowrap">
+          <span>👇</span>
+          <span id="callout-stain-text">點髒污：戳戳戳！</span>
+        </div>
+        <div class="w-4 h-4 bg-amber-500 border-r-4 border-b-4 border-white rotate-45 mx-auto -mt-2"></div>
+      </div>
+
+      <!-- 溫和回饋提示橫幅 (替代 alert，點錯順序時給予正向引導) -->
+      <div id="feedback-toast"
+        class="hidden absolute bottom-20 left-1/2 -translate-x-1/2 z-30 max-w-[90%] bg-slate-900/95 text-white border-4 border-amber-400 rounded-3xl px-6 py-3.5 shadow-2xl text-center transition-all">
+        <p id="feedback-toast-text" class="text-xl md:text-2xl font-black tracking-wide leading-snug"></p>
+      </div>
+
+      <!-- 左下角：視角微調小提示與重置視角 -->
+      <div class="absolute bottom-3 left-3 z-20 flex items-center gap-2">
+        <button id="btn-reset-cam" type="button"
+          class="bg-white/90 hover:bg-white text-slate-700 font-bold text-sm px-3 py-2 rounded-xl border-2 border-slate-300 shadow flex items-center gap-1.5">
+          <span>🎥</span>
+          <span>擺正畫面</span>
+        </button>
+        <span class="hidden sm:inline-block bg-white/80 text-slate-600 text-xs font-bold px-3 py-1.5 rounded-xl border border-slate-200">
+          💡 可以直接點桌上的衣服或去漬筆，也可以拖曳轉動視角
+        </span>
+      </div>
+    </main>
+
+    <!-- 右側 30%：易讀任務分析與操作面板 -->
+    <aside id="control-pane" aria-label="易讀步驟與操作控制區">
+      
+      <!-- 頂部：目前髒污情境卡片 + 語音重聽鈕 -->
+      <div class="p-4 bg-slate-50 border-b-2 border-slate-200">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <span id="stain-badge" class="inline-flex items-center gap-1.5 bg-amber-100 text-amber-900 border-2 border-amber-400 font-black text-base px-3 py-1 rounded-xl">
+            <span>🍛</span>
+            <span id="stain-name-label">沾到：咖哩醬</span>
+          </span>
+
+          <button id="btn-speak-now" type="button"
+            class="btn-3d bg-blue-600 hover:bg-blue-500 text-white font-black text-base px-3.5 py-2 rounded-xl border-2 border-blue-800 flex items-center gap-1 shrink-0"
+            aria-label="再聽一次步驟說明">
+            <span>🔊</span>
+            <span>聽說明</span>
+          </button>
+        </div>
+
+        <!-- 易讀大字主指令框 -->
+        <div id="main-instruction-box" class="bg-white border-3 border-blue-500 rounded-2xl p-3.5 shadow-sm">
+          <div class="flex items-center gap-2 mb-1">
+            <span id="step-pill" class="bg-blue-600 text-white text-sm font-black px-2.5 py-0.5 rounded-lg">步驟 1 / 3</span>
+            <h2 id="step-title" class="text-xl font-black text-slate-900">將衣物放平</h2>
+          </div>
+          <p id="step-desc" class="text-lg font-bold text-slate-700 leading-relaxed">
+            衣服皺皺的！請點一點桌上的<span class="text-blue-700 underline decoration-2">衣服</span>，把衣服鋪平。
+          </p>
+        </div>
+      </div>
+
+      <!-- 中間：三步驟視覺化任務分析清單 (Task Analysis) -->
+      <div class="p-4 flex-1 flex flex-col gap-3">
+        <div class="text-sm font-black text-slate-500 tracking-wider">📋 去漬三步驟</div>
+
+        <!-- 步驟 1 卡片 -->
+        <div id="card-step-1" class="active-step-card rounded-2xl p-3 border-2 border-slate-200 transition-all">
+          <div class="flex items-center gap-3">
+            <div id="icon-step-1" class="w-11 h-11 rounded-xl bg-blue-600 text-white font-black text-xl flex items-center justify-center shrink-0">
+              1
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="font-black text-lg text-slate-900 flex items-center gap-1.5">
+                <span>👕 將衣物放平</span>
+                <span id="check-step-1" class="hidden text-emerald-600">✅</span>
+              </div>
+              <p class="text-sm font-bold text-slate-600">把皺皺的衣服在桌上攤平</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 步驟 2 卡片 (含戳戳戳進度條) -->
+        <div id="card-step-2" class="rounded-2xl p-3 border-2 border-slate-200 bg-slate-50 transition-all">
+          <div class="flex items-center gap-3">
+            <div id="icon-step-2" class="w-11 h-11 rounded-xl bg-slate-300 text-slate-700 font-black text-xl flex items-center justify-center shrink-0">
+              2
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="font-black text-lg text-slate-900 flex items-center gap-1.5">
+                <span>🖊️ 拿去漬筆戳戳戳</span>
+                <span id="check-step-2" class="hidden text-emerald-600">✅</span>
+              </div>
+              <p class="text-sm font-bold text-slate-600">在髒污上面輕輕戳一戳</p>
+            </div>
+          </div>
+
+          <!-- 戳戳戳次數進度條 -->
+          <div id="poke-progress-wrap" class="mt-2.5 hidden">
+            <div class="flex justify-between text-sm font-black text-rose-700 mb-1">
+              <span>去漬進度</span>
+              <span id="poke-counter-text">0 / 5 下</span>
+            </div>
+            <div class="w-full h-4 bg-rose-100 rounded-full overflow-hidden border border-rose-300">
+              <div id="poke-progress-bar" class="h-full bg-rose-500 transition-all duration-200" style="width: 0%;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 步驟 3 卡片 -->
+        <div id="card-step-3" class="rounded-2xl p-3 border-2 border-slate-200 bg-slate-50 transition-all">
+          <div class="flex items-center gap-3">
+            <div id="icon-step-3" class="w-11 h-11 rounded-xl bg-slate-300 text-slate-700 font-black text-xl flex items-center justify-center shrink-0">
+              3
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="font-black text-lg text-slate-900 flex items-center gap-1.5">
+                <span>✨ 髒污去除了</span>
+                <span id="check-step-3" class="hidden text-emerald-600">✅</span>
+              </div>
+              <p class="text-sm font-bold text-slate-600">檢查衣服乾淨了，蓋好筆蓋</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 大型防誤觸主要動作按鈕 (輔助直接點選 3D 物件，確保各種動作能力學生皆可操作) -->
+        <div class="mt-auto pt-2">
+          <button id="btn-primary-action" type="button"
+            class="btn-3d w-full min-h-[68px] bg-blue-600 hover:bg-blue-500 text-white font-black text-2xl rounded-2xl border-2 border-blue-800 px-4 py-3 flex items-center justify-center gap-2.5">
+            <span id="primary-btn-icon">👕</span>
+            <span id="primary-btn-text">把衣服放平</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 底部：可收合老師設定區 (鷹架提示 / 髒污種類 / 戳幾下 / 題數) -->
+      <div class="border-t-2 border-slate-200 bg-slate-100 p-3">
+        <button id="btn-toggle-settings" type="button"
+          class="w-full flex items-center justify-between text-left font-black text-base text-slate-700 py-1.5 px-2 rounded-xl hover:bg-slate-200">
+          <span>⚙️ 老師設定（教學鷹架調整）</span>
+          <span id="settings-arrow">▶</span>
+        </button>
+
+        <div id="teacher-settings-panel" class="hidden mt-3 space-y-3 bg-white p-3.5 rounded-2xl border border-slate-300 text-sm">
+          <!-- 提示鷹架模式 -->
+          <div>
+            <label class="block font-black text-slate-800 mb-1">1. 提示模式（鷹架支持）</label>
+            <select id="setting-mode" class="w-full font-bold text-base p-2.5 rounded-xl border-2 border-slate-300 bg-slate-50">
+              <option value="learning" selected>🌟 學習模式（有發光外框與箭頭提示）</option>
+              <option value="practice">🎯 練習模式（無提示標籤，自主判斷）</option>
+            </select>
+          </div>
+
+          <!-- 髒污種類 -->
+          <div>
+            <label class="block font-black text-slate-800 mb-1">2. 髒污種類</label>
+            <select id="setting-stain" class="w-full font-bold text-base p-2.5 rounded-xl border-2 border-slate-300 bg-slate-50">
+              <option value="random" selected>🎲 隨機出現（咖哩 / 番茄醬 / 醬油）</option>
+              <option value="curry">🍛 咖哩醬（黃橘色）</option>
+              <option value="ketchup">🍅 番茄醬（紅色）</option>
+              <option value="soysauce">🥢 醬油（深咖啡色）</option>
+            </select>
+          </div>
+
+          <!-- 戳幾下 -->
+          <div>
+            <label class="block font-black text-slate-800 mb-1">3. 去漬筆需要戳幾下</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button type="button" data-pokes="3" class="poke-opt-btn font-black py-2 rounded-xl border-2 border-slate-300 bg-slate-50">3 下</button>
+              <button type="button" data-pokes="5" class="poke-opt-btn font-black py-2 rounded-xl border-2 border-blue-600 bg-blue-100 text-blue-900">5 下</button>
+              <button type="button" data-pokes="8" class="poke-opt-btn font-black py-2 rounded-xl border-2 border-slate-300 bg-slate-50">8 下</button>
+            </div>
+          </div>
+
+          <!-- 練習題數 -->
+          <div>
+            <label class="block font-black text-slate-800 mb-1">4. 每次練習題數</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" data-rounds="3" class="round-opt-btn font-black py-2 rounded-xl border-2 border-blue-600 bg-blue-100 text-blue-900">3 題</button>
+              <button type="button" data-rounds="5" class="round-opt-btn font-black py-2 rounded-xl border-2 border-slate-300 bg-slate-50">5 題</button>
+            </div>
+          </div>
+
+          <button id="btn-apply-restart" type="button"
+            class="w-full bg-slate-800 hover:bg-slate-700 text-white font-black py-2.5 rounded-xl mt-1">
+            套用設定並重新開始
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 封面開始畫面 Modal -->
+  <div id="start-modal" class="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white max-w-2xl w-full rounded-3xl border-4 border-blue-500 p-6 md:p-8 shadow-2xl text-center">
+      <div class="inline-flex items-center gap-2 bg-blue-100 text-blue-800 font-black px-4 py-1.5 rounded-full text-base mb-3">
+        <span>🧺</span>
+        <span>居家洗衣課程｜生活技能訓練</span>
+      </div>
+
+      <h1 class="text-3xl md:text-4xl font-black text-slate-900 mb-3">
+        衣物去漬小達人
+      </h1>
+
+      <p class="text-lg md:text-xl font-bold text-slate-600 mb-6 leading-relaxed">
+        吃飯時衣服不小心沾到髒污怎麼辦？<br />
+        我們一起用<span class="text-rose-600 font-black">「衣物去漬筆」</span>把衣服變乾淨！
+      </p>
+
+      <!-- 易讀三步驟圖卡預覽 -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-7 text-left">
+        <div class="bg-blue-50 border-2 border-blue-300 rounded-2xl p-4">
+          <div class="text-3xl mb-1">1️⃣ 👕</div>
+          <div class="font-black text-lg text-slate-900">將衣物放平</div>
+          <p class="text-sm font-bold text-slate-600 mt-1">把衣服在桌上鋪平。</p>
+        </div>
+
+        <div class="bg-rose-50 border-2 border-rose-300 rounded-2xl p-4">
+          <div class="text-3xl mb-1">2️⃣ 🖊️</div>
+          <div class="font-black text-lg text-slate-900">去漬筆戳戳戳</div>
+          <p class="text-sm font-bold text-slate-600 mt-1">對準髒污輕輕戳一戳。</p>
+        </div>
+
+        <div class="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-4">
+          <div class="text-3xl mb-1">3️⃣ ✨</div>
+          <div class="font-black text-lg text-slate-900">髒污去除了</div>
+          <p class="text-sm font-bold text-slate-600 mt-1">衣服變乾淨，蓋好筆蓋。</p>
+        </div>
+      </div>
+
+      <button id="btn-start-game" type="button"
+        class="btn-3d w-full sm:w-auto min-w-[260px] min-h-[72px] bg-emerald-500 hover:bg-emerald-400 text-white font-black text-2xl px-8 py-4 rounded-2xl border-2 border-emerald-700">
+        ▶️ 開始練習
+      </button>
+    </div>
+  </div>
+
+  <!-- 步驟小幫手 Modal (Easy-Read 圖文說明) -->
+  <div id="helper-modal" class="hidden fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white max-w-xl w-full rounded-3xl border-4 border-amber-400 p-6 shadow-2xl">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-2xl font-black text-slate-900 flex items-center gap-2">
+          <span>📖</span>
+          <span>去漬筆使用小幫手</span>
+        </h2>
+        <button id="btn-close-helper" type="button"
+          class="bg-slate-200 hover:bg-slate-300 text-slate-800 font-black text-lg px-4 py-2 rounded-xl">
+          ✖ 關閉
+        </button>
+      </div>
+
+      <div class="space-y-3 text-base md:text-lg">
+        <div class="flex items-start gap-3 bg-blue-50 p-3.5 rounded-2xl border-2 border-blue-200">
+          <span class="text-2xl font-black text-blue-700">1.</span>
+          <div>
+            <p class="font-black text-slate-900">將衣物放平</p>
+            <p class="font-bold text-slate-600">衣服下面墊好吸水紙，把衣服鋪平，才不會弄髒桌子。</p>
+          </div>
+        </div>
+
+        <div class="flex items-start gap-3 bg-rose-50 p-3.5 rounded-2xl border-2 border-rose-200">
+          <span class="text-2xl font-black text-rose-700">2.</span>
+          <div>
+            <p class="font-black text-slate-900">拿去漬筆在髒污處「戳戳戳」</p>
+            <p class="font-bold text-slate-600">打開筆蓋，筆頭對準髒污輕輕按壓，讓去漬液把髒污吸出來。</p>
+          </div>
+        </div>
+
+        <div class="flex items-start gap-3 bg-emerald-50 p-3.5 rounded-2xl border-2 border-emerald-200">
+          <span class="text-2xl font-black text-emerald-700">3.</span>
+          <div>
+            <p class="font-black text-slate-900">髒污去除了！</p>
+            <p class="font-bold text-slate-600">檢查髒污不見了，記得把去漬筆的蓋子蓋好收起來。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-5 flex justify-end gap-3">
+        <button id="btn-helper-speak" type="button"
+          class="btn-3d bg-blue-600 text-white font-black text-lg px-5 py-3 rounded-2xl border-2 border-blue-800">
+          🔊 唸給我聽
+        </button>
+        <button id="btn-helper-ok" type="button"
+          class="btn-3d bg-amber-400 text-slate-900 font-black text-lg px-6 py-3 rounded-2xl border-2 border-amber-600">
+          我知道了！
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 過關 / 全部完成慶祝 Modal -->
+  <div id="celebrate-modal" class="hidden fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white max-w-lg w-full rounded-3xl border-4 border-emerald-500 p-7 shadow-2xl text-center">
+      <div class="text-6xl mb-3">🎉✨👕</div>
+      <h2 id="celebrate-title" class="text-3xl font-black text-slate-900 mb-2">太棒了！髒污去除了！</h2>
+      <p id="celebrate-desc" class="text-xl font-bold text-slate-600 mb-6">
+        衣服變得好乾淨，你獲得一顆星星！
+      </p>
+      <div id="celebrate-stars" class="text-4xl mb-6 tracking-widest">⭐⭐⭐</div>
+      <button id="btn-next-round" type="button"
+        class="btn-3d w-full min-h-[68px] bg-emerald-500 hover:bg-emerald-400 text-white font-black text-2xl px-6 py-4 rounded-2xl border-2 border-emerald-700">
+        ➡️ 挑戰下一題
+      </button>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * ============================================================================
+     * 衣物去漬小達人 (Stain Remover Pen 3D Simulator)
+     * 專為特殊教育居家洗衣課程設計：
+     * - 70:30 響應式分割介面 + ResizeObserver 自適應 3D 畫布
+     * - Three.js 互動桌面：皺摺衣服、吸水墊紙、紅白去漬急救隨身瓶（可開蓋、按壓戳擊）
+     * - 雙模操作：學生可直接點選 3D 畫面中的衣服 / 去漬筆 / 髒污，或點右側大按鈕
+     * - 國語語音朗讀 (zh-TW TTS) + Web Audio API 溫和音效
+     * ============================================================================
+     */
+
+    // --------------------------------------------------------------------------
+    // 1. 遊戲狀態與課程設定
+    // --------------------------------------------------------------------------
+    const STAIN_TYPES = {
+      curry: {
+        id: 'curry',
+        name: '咖哩醬',
+        emoji: '🍛',
+        primaryColor: '#eab308',
+        secondaryColor: '#ca8a04',
+        badgeBg: 'bg-amber-100',
+        badgeText: 'text-amber-900',
+        badgeBorder: 'border-amber-400'
+      },
+      ketchup: {
+        id: 'ketchup',
+        name: '番茄醬',
+        emoji: '🍅',
+        primaryColor: '#ef4444',
+        secondaryColor: '#b91c1c',
+        badgeBg: 'bg-rose-100',
+        badgeText: 'text-rose-900',
+        badgeBorder: 'border-rose-400'
+      },
+      soysauce: {
+        id: 'soysauce',
+        name: '醬油',
+        emoji: '🥢',
+        primaryColor: '#78350f',
+        secondaryColor: '#451a03',
+        badgeBg: 'bg-orange-100',
+        badgeText: 'text-orange-950',
+        badgeBorder: 'border-orange-400'
+      }
+    };
+
+    const state = {
+      started: false,
+      // step: 1 (將衣物放平) -> 2 (拿去漬筆戳戳戳) -> 3 (髒污去除了，檢查完成)
+      step: 1,
+      penPickedUp: false, // 步驟2中：是否已拿起去漬筆並打開蓋子
+      pokeCount: 0,
+      pokesRequired: 5,
+      currentRound: 1,
+      totalRounds: 3,
+      starsEarned: 0,
+      scaffoldingMode: 'learning', // 'learning' | 'practice'
+      stainSetting: 'random',      // 'random' | 'curry' | 'ketchup' | 'soysauce'
+      currentStain: STAIN_TYPES.curry,
+      ttsEnabled: true,
+      lastActionTime: 0,           // 防連點保護時間戳 (350ms)
+      isAnimating: false
+    };
+
+    // --------------------------------------------------------------------------
+    // 2. 音效與國語語音模組 (Web Audio API + Web Speech API)
+    // --------------------------------------------------------------------------
+    let audioCtx = null;
+
+    function ensureAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          audioCtx = new AudioContextClass();
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    // 柔和音效產生器（避免尖銳錯誤聲，保護感官敏感學生）
+    function playSound(type) {
+      try {
+        ensureAudioContext();
+        if (!audioCtx) return;
+
+        const now = audioCtx.currentTime;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        if (type === 'flatten') {
+          // 鋪平衣物：輕柔上揚滑音
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(320, now);
+          osc.frequency.exponentialRampToValueAtTime(520, now + 0.25);
+          gain.gain.setValueAtTime(0.18, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+          osc.start(now);
+          osc.stop(now + 0.29);
+        } else if (type === 'pickup') {
+          // 打開筆蓋啵一聲
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(480, now);
+          osc.frequency.exponentialRampToValueAtTime(760, now + 0.14);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+          osc.start(now);
+          osc.stop(now + 0.17);
+        } else if (type === 'poke') {
+          // 去漬筆戳戳戳：清脆水滴泡泡聲，隨次數音高微升
+          const baseFreq = 440 + state.pokeCount * 45;
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(baseFreq, now);
+          osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.35, now + 0.12);
+          gain.gain.setValueAtTime(0.22, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+          osc.start(now);
+          osc.stop(now + 0.15);
+        } else if (type === 'gentle_hint') {
+          // 溫和提醒：雙音柔和木琴音（非刺耳蜂鳴）
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(392, now); // G4
+          osc.frequency.setValueAtTime(330, now + 0.14); // E4
+          gain.gain.setValueAtTime(0.15, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+          osc.start(now);
+          osc.stop(now + 0.33);
+        } else if (type === 'success') {
+          // 過關三和弦歡呼音
+          const notes = [523.25, 659.25, 783.99, 1046.5];
+          notes.forEach((freq, idx) => {
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.type = 'triangle';
+            o.frequency.setValueAtTime(freq, now + idx * 0.11);
+            g.gain.setValueAtTime(0.2, now + idx * 0.11);
+            g.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.11 + 0.35);
+            o.connect(g);
+            g.connect(audioCtx.destination);
+            o.start(now + idx * 0.11);
+            o.stop(now + idx * 0.11 + 0.36);
+          });
+        }
+      } catch (e) {
+        // 忽略瀏覽器音效限制錯誤
+      }
+    }
+
+    // 國語語音朗讀 (zh-TW)
+    function speakText(text) {
+      if (!state.ttsEnabled || !('speechSynthesis' in window)) return;
+      try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = 'zh-TW';
+        utter.rate = 0.92; // 略慢語速，方便特教學生理解
+        utter.pitch = 1.05;
+        window.speechSynthesis.speak(utter);
+      } catch (e) {
+        // 忽略語音錯誤
+      }
+    }
+
+    // --------------------------------------------------------------------------
+    // 3. Three.js 3D 場景建置（衣物、動態髒污貼圖、吸水紙、紅白去漬隨身瓶）
+    // --------------------------------------------------------------------------
+    const viewportPane = document.getElementById('viewport-pane');
+    const canvas = document.getElementById('three-canvas');
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#e0f2fe');
+
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+    const defaultCamPos = new THREE.Vector3(0, 7.6, 6.8);
+    const defaultCamLookAt = new THREE.Vector3(0, 0.3, 0.2);
+    camera.position.copy(defaultCamPos);
+    camera.lookAt(defaultCamLookAt);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+    // 光源設置：明亮溫馨的室內洗衣間光線
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.72);
+    scene.add(ambientLight);
+
+    const dirLight = new THREE.DirectionalLight(0xfffbeb, 0.78);
+    dirLight.position.set(4.5, 9.5, 5.5);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 1024;
+    dirLight.shadow.mapSize.height = 1024;
+    dirLight.shadow.camera.near = 1;
+    dirLight.shadow.camera.far = 25;
+    const d = 6;
+    dirLight.shadow.camera.left = -d;
+    dirLight.shadow.camera.right = d;
+    dirLight.shadow.camera.top = d;
+    dirLight.shadow.camera.bottom = -d;
+    scene.add(dirLight);
+
+    // 1) 桌面與防污墊
+    const tableGroup = new THREE.Group();
+    scene.add(tableGroup);
+
+    const tableGeo = new THREE.BoxGeometry(11, 0.4, 7.5);
+    const tableMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.65 });
+    const tableMesh = new THREE.Mesh(tableGeo, tableMat);
+    tableMesh.position.y = -0.2;
+    tableMesh.receiveShadow = true;
+    tableGroup.add(tableMesh);
+
+    // 淡藍色操作桌墊（明確界定工作範圍，符合結構化教學 TEACCH 概念）
+    const matGeo = new THREE.BoxGeometry(7.2, 0.04, 5.0);
+    const matMat = new THREE.MeshStandardMaterial({ color: '#bae6fd', roughness: 0.8 });
+    const matMesh = new THREE.Mesh(matGeo, matMat);
+    matMesh.position.set(-0.3, 0.02, 0.1);
+    matMesh.receiveShadow = true;
+    tableGroup.add(matMesh);
+
+    // 白色吸水墊紙（影片中墊在衣物下方的衛生紙/吸水紙）
+    const tissueGeo = new THREE.BoxGeometry(2.6, 0.03, 2.6);
+    const tissueMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9 });
+    const tissueMesh = new THREE.Mesh(tissueGeo, tissueMat);
+    tissueMesh.position.set(-0.5, 0.055, 0.1);
+    tissueMesh.receiveShadow = true;
+    tableGroup.add(tissueMesh);
+
+    // 2) 程序化產生白色上衣與動態髒污 Canvas 貼圖
+    const shirtCanvas = document.createElement('canvas');
+    shirtCanvas.width = 512;
+    shirtCanvas.height = 512;
+    const shirtCtx = shirtCanvas.getContext('2d');
+    const shirtTexture = new THREE.CanvasTexture(shirtCanvas);
+
+    // 預先產生不規則髒污點座標，確保每次重繪形狀一致、透明度平滑遞減
+    const stainBlobs = [
+      { dx: 0, dy: 0, r: 44 },
+      { dx: -24, dy: 14, r: 26 },
+      { dx: 26, dy: -12, r: 24 },
+      { dx: 14, dy: 24, r: 20 },
+      { dx: -16, dy: -22, r: 18 }
+    ];
+
+    function redrawShirtTexture(stainOpacity = 1.0) {
+      // 純白棉質底色
+      shirtCtx.fillStyle = '#ffffff';
+      shirtCtx.fillRect(0, 0, 512, 512);
+
+      // 繪製衣物領口與衣縫細節（讓學生一眼認出這是衣服）
+      shirtCtx.strokeStyle = '#cbd5e1';
+      shirtCtx.lineWidth = 5;
+      // 圓領弧線
+      shirtCtx.beginPath();
+      shirtCtx.arc(256, 42, 72, 0.12 * Math.PI, 0.88 * Math.PI);
+      shirtCtx.stroke();
+
+      // 胸前口袋輪廓
+      shirtCtx.strokeStyle = '#e2e8f0';
+      shirtCtx.lineWidth = 3;
+      shirtCtx.strokeRect(318, 145, 68, 76);
+
+      // 繪製髒污（依據目前髒污顏色與剩餘透明度）
+      if (stainOpacity > 0.01) {
+        const cx = 240;
+        const cy = 275;
+        shirtCtx.save();
+        shirtCtx.globalAlpha = Math.max(0, Math.min(1, stainOpacity));
+
+        // 外圈暈染
+        shirtCtx.fillStyle = state.currentStain.primaryColor;
+        stainBlobs.forEach((b) => {
+          shirtCtx.beginPath();
+          shirtCtx.arc(cx + b.dx, cy + b.dy, b.r * (0.75 + 0.25 * stainOpacity), 0, Math.PI * 2);
+          shirtCtx.fill();
+        });
+
+        // 內圈深色濃縮髒污
+        shirtCtx.fillStyle = state.currentStain.secondaryColor;
+        stainBlobs.slice(0, 3).forEach((b) => {
+          shirtCtx.beginPath();
+          shirtCtx.arc(cx + b.dx * 0.7, cy + b.dy * 0.7, b.r * 0.55 * stainOpacity, 0, Math.PI * 2);
+          shirtCtx.fill();
+        });
+
+        shirtCtx.restore();
+      }
+
+      shirtTexture.needsUpdate = true;
+    }
+
+    // 建構 3D 衣服群組（含衣身、左右短袖、動態皺摺頂點）
+    const shirtGroup = new THREE.Group();
+    shirtGroup.position.set(-0.5, 0.09, 0.1);
+    scene.add(shirtGroup);
+
+    // 衣身網格 (細分網格以呈現真實皺摺 -> 放平動畫)
+    const bodyGeo = new THREE.PlaneGeometry(3.2, 3.6, 24, 24);
+    bodyGeo.rotateX(-Math.PI / 2);
+    const bodyBasePos = Float32Array.from(bodyGeo.attributes.position.array);
+
+    const shirtMat = new THREE.MeshStandardMaterial({
+      map: shirtTexture,
+      roughness: 0.85,
+      side: THREE.DoubleSide
+    });
+
+    const shirtBodyMesh = new THREE.Mesh(bodyGeo, shirtMat);
+    shirtBodyMesh.castShadow = true;
+    shirtBodyMesh.receiveShadow = true;
+    shirtBodyMesh.userData = { interactType: 'shirt' };
+    shirtGroup.add(shirtBodyMesh);
+
+    // 左右衣袖
+    const sleeveGeo = new THREE.PlaneGeometry(1.05, 1.15, 8, 8);
+    sleeveGeo.rotateX(-Math.PI / 2);
+    const sleeveMat = new THREE.MeshStandardMaterial({ color: '#f8fafc', roughness: 0.85, side: THREE.DoubleSide });
+
+    const leftSleeve = new THREE.Mesh(sleeveGeo, sleeveMat);
+    leftSleeve.position.set(-1.95, 0.01, -0.95);
+    leftSleeve.rotation.y = 0.28;
+    leftSleeve.castShadow = true;
+    leftSleeve.userData = { interactType: 'shirt' };
+    shirtGroup.add(leftSleeve);
+
+    const rightSleeve = new THREE.Mesh(sleeveGeo, sleeveMat);
+    rightSleeve.position.set(1.95, 0.01, -0.95);
+    rightSleeve.rotation.y = -0.28;
+    rightSleeve.castShadow = true;
+    rightSleeve.userData = { interactType: 'shirt' };
+    shirtGroup.add(rightSleeve);
+
+    // 髒污位置不可見碰撞熱區（放大點擊容錯範圍，方便動作較大或使用觸控筆的學生點選）
+    const stainHitGeo = new THREE.CylinderGeometry(0.95, 0.95, 0.35, 20);
+    const stainHitMat = new THREE.MeshBasicMaterial({ visible: false });
+    const stainHitMesh = new THREE.Mesh(stainHitGeo, stainHitMat);
+    stainHitMesh.position.set(-0.6, 0.22, 0.25);
+    stainHitMesh.userData = { interactType: 'stain' };
+    scene.add(stainHitMesh);
+
+    // 學習模式下的發光引導光圈（高亮提示目前該點哪裡）
+    const guideRingGeo = new THREE.RingGeometry(0.75, 0.95, 36);
+    guideRingGeo.rotateX(-Math.PI / 2);
+    const guideRingMat = new THREE.MeshBasicMaterial({
+      color: '#2563eb',
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85
+    });
+    const guideRing = new THREE.Mesh(guideRingGeo, guideRingMat);
+    guideRing.position.set(-0.5, 0.13, 0.1);
+    scene.add(guideRing);
+
+    // 衣服皺摺度控制 (1.0 = 皺巴巴, 0.0 = 完全放平)
+    let wrinkleAmount = 1.0;
+    function applyShirtWrinkles(amount) {
+      const posAttr = bodyGeo.attributes.position;
+      for (let i = 0; i < posAttr.count; i++) {
+        const bx = bodyBasePos[i * 3];
+        const bz = bodyBasePos[i * 3 + 2];
+        // 產生自然波浪皺摺高度與微幅收縮
+        const wave =
+          Math.sin(bx * 3.2 + bz * 2.1) * 0.22 +
+          Math.cos(bx * 2.4 - bz * 3.5) * 0.16;
+        const yOffset = Math.max(0, wave + 0.18) * amount;
+        posAttr.setXYZ(
+          i,
+          bx * (1 - 0.12 * amount),
+          yOffset,
+          bz * (1 - 0.14 * amount)
+        );
+      }
+      posAttr.needsUpdate = true;
+      bodyGeo.computeVertexNormals();
+
+      // 衣袖同步微收合/展開
+      leftSleeve.position.x = -1.95 + 0.32 * amount;
+      leftSleeve.position.y = 0.01 + 0.14 * amount;
+      leftSleeve.rotation.z = -0.25 * amount;
+
+      rightSleeve.position.x = 1.95 - 0.32 * amount;
+      rightSleeve.position.y = 0.01 + 0.14 * amount;
+      rightSleeve.rotation.z = 0.25 * amount;
+    }
+
+    // 3) 建構 LION 獅王風格紅白衣物去漬急救隨身瓶 (3D Pen)
+    const penGroup = new THREE.Group();
+    const penRestPos = new THREE.Vector3(2.35, 0.32, 0.65);
+    const penRestRot = new THREE.Euler(0, 0.2, Math.PI / 2); // 平躺在桌面上
+    penGroup.position.copy(penRestPos);
+    penGroup.rotation.copy(penRestRot);
+    scene.add(penGroup);
+
+    // 白色瓶身
+    const penBodyGeo = new THREE.CylinderGeometry(0.24, 0.26, 2.1, 24);
+    const penBodyMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.3 });
+    const penBodyMesh = new THREE.Mesh(penBodyGeo, penBodyMat);
+    penBodyMesh.castShadow = true;
+    penBodyMesh.userData = { interactType: 'pen' };
+    penGroup.add(penBodyMesh);
+
+    // 紅色品牌腰帶貼紙
+    const penLabelGeo = new THREE.CylinderGeometry(0.252, 0.256, 1.15, 24);
+    const penLabelMat = new THREE.MeshStandardMaterial({ color: '#e11d48', roughness: 0.4 });
+    const penLabelMesh = new THREE.Mesh(penLabelGeo, penLabelMat);
+    penLabelMesh.position.y = -0.05;
+    penLabelMesh.userData = { interactType: 'pen' };
+    penGroup.add(penLabelMesh);
+
+    // 綠色重點文字條裝飾（呼應影片中紅白綠配色瓶身）
+    const penStripeGeo = new THREE.CylinderGeometry(0.255, 0.255, 0.22, 24);
+    const penStripeMat = new THREE.MeshStandardMaterial({ color: '#16a34a', roughness: 0.4 });
+    const penStripeMesh = new THREE.Mesh(penStripeGeo, penStripeMat);
+    penStripeMesh.position.y = 0.28;
+    penStripeMesh.userData = { interactType: 'pen' };
+    penGroup.add(penStripeMesh);
+
+    // 白色海綿吸收筆頭（朝向 -Y 方便垂直往下戳髒污）
+    const penTipGeo = new THREE.CylinderGeometry(0.11, 0.16, 0.35, 20);
+    const penTipMat = new THREE.MeshStandardMaterial({ color: '#f1f5f9', roughness: 0.9 });
+    const penTipMesh = new THREE.Mesh(penTipGeo, penTipMat);
+    penTipMesh.position.y = -1.2;
+    penTipMesh.userData = { interactType: 'pen' };
+    penGroup.add(penTipMesh);
+
+    // 紅色透明感筆蓋（拿起去漬筆時會自動拔開飛到桌旁，完成後蓋回）
+    const penCapGroup = new THREE.Group();
+    const capGeo = new THREE.CylinderGeometry(0.25, 0.26, 0.68, 24);
+    const capMat = new THREE.MeshStandardMaterial({ color: '#be123c', roughness: 0.35 });
+    const capMesh = new THREE.Mesh(capGeo, capMat);
+    capMesh.castShadow = true;
+    capMesh.userData = { interactType: 'pen' };
+    penCapGroup.add(capMesh);
+    penCapGroup.position.set(0, -1.18, 0);
+    penGroup.add(penCapGroup);
+
+    // 去漬筆放大點擊感應盒
+    const penHitGeo = new THREE.BoxGeometry(0.95, 3.1, 0.95);
+    const penHitMat = new THREE.MeshBasicMaterial({ visible: false });
+    const penHitMesh = new THREE.Mesh(penHitGeo, penHitMat);
+    penHitMesh.userData = { interactType: 'pen' };
+    penGroup.add(penHitMesh);
+
+    // 4) 粒子系統：去漬水珠泡沫 + 乾淨閃亮星星
+    const particles = [];
+    const particleGeo = new THREE.SphereGeometry(0.06, 10, 10);
+
+    function spawnPokeParticles(worldPos, isSparkle = false) {
+      const count = isSparkle ? 24 : 10;
+      for (let i = 0; i < count; i++) {
+        const mat = new THREE.MeshBasicMaterial({
+          color: isSparkle ? (i % 2 === 0 ? '#facc15' : '#38bdf8') : '#ffffff',
+          transparent: true,
+          opacity: 0.95
+        });
+        const mesh = new THREE.Mesh(particleGeo, mat);
+        mesh.position.copy(worldPos);
+        mesh.position.y += 0.15;
+
+        const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+        const speed = isSparkle ? 0.04 + Math.random() * 0.05 : 0.025 + Math.random() * 0.03;
+        scene.add(mesh);
+        particles.push({
+          mesh,
+          vx: Math.cos(angle) * speed,
+          vy: 0.04 + Math.random() * 0.05,
+          vz: Math.sin(angle) * speed,
+          life: 1.0
+        });
+      }
+    }
+
+    // --------------------------------------------------------------------------
+    // 4. Raycasting 3D 物件直接點選 + 視角拖曳旋轉
+    // --------------------------------------------------------------------------
+    const raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2();
+
+    let isDraggingCam = false;
+    let dragMoved = false;
+    let prevPointer = { x: 0, y: 0 };
+    let camAzimuth = 0;
+    let camElevation = 0.78;
+    const camRadius = 10.2;
+
+    function updateCameraOrbit() {
+      const x = camRadius * Math.sin(camAzimuth) * Math.cos(camElevation);
+      const y = Math.max(3.2, camRadius * Math.sin(camElevation));
+      const z = camRadius * Math.cos(camAzimuth) * Math.cos(camElevation);
+      camera.position.set(x, y, z);
+      camera.lookAt(defaultCamLookAt);
+    }
+
+    canvas.addEventListener('pointerdown', (e) => {
+      isDraggingCam = true;
+      dragMoved = false;
+      prevPointer = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (!isDraggingCam) return;
+      const dx = e.clientX - prevPointer.x;
+      const dy = e.clientY - prevPointer.y;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        dragMoved = true;
+        camAzimuth -= dx * 0.006;
+        camAzimuth = Math.max(-0.85, Math.min(0.85, camAzimuth));
+        camElevation += dy * 0.005;
+        camElevation = Math.max(0.45, Math.min(1.25, camElevation));
+        updateCameraOrbit();
+      }
+      prevPointer = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener('pointerup', (e) => {
+      if (!isDraggingCam) return;
+      isDraggingCam = false;
+      if (!dragMoved && state.started) {
+        handleCanvasTap(e.clientX, e.clientY);
+      }
+    });
+
+    function handleCanvasTap(clientX, clientY) {
+      const rect = canvas.getBoundingClientRect();
+      pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(pointer, camera);
+      const targets = [penHitMesh, stainHitMesh, shirtBodyMesh, leftSleeve, rightSleeve];
+      const intersects = raycaster.intersectObjects(targets, false);
+
+      if (intersects.length > 0) {
+        const hitType = intersects[0].object.userData.interactType;
+        onInteractWithObject(hitType);
+      }
+    }
+
+    // --------------------------------------------------------------------------
+    // 5. 核心教學流程控制與互動邏輯 (含防誤觸與溫和引導)
+    // --------------------------------------------------------------------------
+    let feedbackTimer = null;
+    function showGentleFeedback(message, shouldSpeak = true) {
+      const toast = document.getElementById('feedback-toast');
+      const toastText = document.getElementById('feedback-toast-text');
+      toastText.textContent = message;
+      toast.classList.remove('hidden');
+      playSound('gentle_hint');
+      if (shouldSpeak) speakText(message);
+
+      clearTimeout(feedbackTimer);
+      feedbackTimer = setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 2800);
+    }
+
+    function passDebounce() {
+      const now = Date.now();
+      if (now - state.lastActionTime < 350) return false;
+      state.lastActionTime = now;
+      return true;
+    }
+
+    // 當學生點選 3D 物件 ('shirt' | 'pen' | 'stain')
+    function onInteractWithObject(targetType) {
+      if (!passDebounce() || state.isAnimating) return;
+
+      if (state.step === 1) {
+        if (targetType === 'shirt' || targetType === 'stain') {
+          performStep1FlattenShirt();
+        } else if (targetType === 'pen') {
+          showGentleFeedback('先點衣服，把衣服放平喔！');
+        }
+      } else if (state.step === 2) {
+        if (!state.penPickedUp) {
+          if (targetType === 'pen') {
+            performStep2PickupPen();
+          } else {
+            showGentleFeedback('請先點桌上的去漬筆，打開筆蓋！');
+          }
+        } else {
+          // 已經拿著去漬筆，點髒污、衣服或去漬筆都可以進行「戳戳戳」
+          if (targetType === 'stain' || targetType === 'shirt' || targetType === 'pen') {
+            performStep2PokeStain();
+          }
+        }
+      } else if (state.step === 3) {
+        performStep3CompleteRound();
+      }
+    }
+
+    // 執行步驟 1：將衣物放平
+    function performStep1FlattenShirt() {
+      state.isAnimating = true;
+      playSound('flatten');
+
+      const startWrinkle = wrinkleAmount;
+      const duration = 520;
+      const startTime = performance.now();
+
+      function animateFlatten(now) {
+        const t = Math.min(1, (now - startTime) / duration);
+        const ease = 1 - Math.pow(1 - t, 3);
+        wrinkleAmount = startWrinkle * (1 - ease);
+        applyShirtWrinkles(wrinkleAmount);
+
+        if (t < 1) {
+          requestAnimationFrame(animateFlatten);
+        } else {
+          wrinkleAmount = 0;
+          applyShirtWrinkles(0);
+          state.isAnimating = false;
+          state.step = 2;
+          state.penPickedUp = false;
+          updateUIAndGuidance(true);
+        }
+      }
+      requestAnimationFrame(animateFlatten);
+    }
+
+    // 執行步驟 2a：拿起去漬筆並打開蓋子
+    function performStep2PickupPen() {
+      state.isAnimating = true;
+      playSound('pickup');
+
+      const startPos = penGroup.position.clone();
+      const targetPos = new THREE.Vector3(-0.6, 1.95, 0.25); // 懸停在髒污正上方
+      const duration = 450;
+      const startTime = performance.now();
+
+      // 把筆蓋移出到桌面上
+      scene.attach(penCapGroup);
+
+      function animatePickup(now) {
+        const t = Math.min(1, (now - startTime) / duration);
+        const ease = 1 - Math.pow(1 - t, 3);
+
+        penGroup.position.lerpVectors(startPos, targetPos, ease);
+        penGroup.rotation.set(0, 0, (Math.PI / 2) * (1 - ease));
+
+        // 筆蓋飛到旁邊桌面放好
+        penCapGroup.position.lerp(new THREE.Vector3(2.4, 0.26, -0.5), ease);
+        penCapGroup.rotation.set(0, 0.4, Math.PI / 2);
+
+        if (t < 1) {
+          requestAnimationFrame(animatePickup);
+        } else {
+          state.isAnimating = false;
+          state.penPickedUp = true;
+          updateUIAndGuidance(true);
+        }
+      }
+      requestAnimationFrame(animatePickup);
+    }
+
+    // 執行步驟 2b：拿去漬筆在髒污處「戳戳戳」
+    function performStep2PokeStain() {
+      if (state.pokeCount >= state.pokesRequired) return;
+
+      state.isAnimating = true;
+      state.pokeCount += 1;
+      playSound('poke');
+
+      const hoverPos = new THREE.Vector3(-0.6, 1.95, 0.25);
+      const downPos = new THREE.Vector3(-0.6, 1.38, 0.25);
+      const duration = 260;
+      const startTime = performance.now();
+      let spawned = false;
+
+      function animatePoke(now) {
+        const t = Math.min(1, (now - startTime) / duration);
+        // 往下戳再回彈
+        const wave = Math.sin(t * Math.PI);
+        penGroup.position.lerpVectors(hoverPos, downPos, wave);
+
+        if (t >= 0.45 && !spawned) {
+          spawned = true;
+          const remainRatio = 1 - state.pokeCount / state.pokesRequired;
+          redrawShirtTexture(remainRatio);
+          spawnPokeParticles(new THREE.Vector3(-0.6, 0.14, 0.25), false);
+        }
+
+        if (t < 1) {
+          requestAnimationFrame(animatePoke);
+        } else {
+          penGroup.position.copy(hoverPos);
+          state.isAnimating = false;
+
+          if (state.pokeCount >= state.pokesRequired) {
+            // 髒污完全去除！蓋回筆蓋並進入步驟 3
+            finishStep2AndCapPen();
+          } else {
+            updateUIAndGuidance(false);
+          }
+        }
+      }
+      requestAnimationFrame(animatePoke);
+    }
+
+    // 髒污清除完畢：筆蓋蓋回、去漬筆放回桌面、噴灑乾淨星星粒子
+    function finishStep2AndCapPen() {
+      state.isAnimating = true;
+      redrawShirtTexture(0);
+      spawnPokeParticles(new THREE.Vector3(-0.6, 0.2, 0.25), true);
+      playSound('success');
+
+      const startPenPos = penGroup.position.clone();
+      const duration = 500;
+      const startTime = performance.now();
+
+      function animateReturnPen(now) {
+        const t = Math.min(1, (now - startTime) / duration);
+        const ease = 1 - Math.pow(1 - t, 3);
+
+        penGroup.position.lerpVectors(startPenPos, penRestPos, ease);
+        penGroup.rotation.set(0, 0.2 * ease, (Math.PI / 2) * ease);
+
+        if (t < 1) {
+          requestAnimationFrame(animateReturnPen);
+        } else {
+          // 筆蓋重新裝回筆身
+          penGroup.add(penCapGroup);
+          penCapGroup.position.set(0, -1.18, 0);
+          penCapGroup.rotation.set(0, 0, 0);
+
+          state.isAnimating = false;
+          state.step = 3;
+          updateUIAndGuidance(true);
+        }
+      }
+      requestAnimationFrame(animateReturnPen);
+    }
+
+    // 執行步驟 3：確認髒污去除，顯示過關慶祝視窗
+    function performStep3CompleteRound() {
+      playSound('success');
+      state.starsEarned = Math.min(state.totalRounds, state.starsEarned + 1);
+      renderStarsBar();
+
+      const modal = document.getElementById('celebrate-modal');
+      const title = document.getElementById('celebrate-title');
+      const desc = document.getElementById('celebrate-desc');
+      const starsEl = document.getElementById('celebrate-stars');
+      const nextBtn = document.getElementById('btn-next-round');
+
+      starsEl.textContent = '⭐'.repeat(state.starsEarned);
+
+      if (state.currentRound < state.totalRounds) {
+        title.textContent = '太棒了！髒污去除了！';
+        desc.textContent = `衣服變得好乾淨！已完成第 ${state.currentRound} 題，繼續加油！`;
+        nextBtn.textContent = '➡️ 挑戰下一題';
+        speakText('太棒了！髒污去除了！衣服變得好乾淨！');
+      } else {
+        title.textContent = '恭喜成為衣物去漬小達人！';
+        desc.textContent = `你已經完成全部 ${state.totalRounds} 題練習，學會自己處理衣物髒污了！`;
+        nextBtn.textContent = '🔄 再玩一次';
+        speakText('恭喜你成為衣物去漬小達人！你已經完成全部練習囉！');
+      }
+
+      modal.classList.remove('hidden');
+    }
+
+    // --------------------------------------------------------------------------
+    // 6. UI 狀態同步與易讀指示更新
+    // --------------------------------------------------------------------------
+    function pickStainForRound() {
+      const keys = Object.keys(STAIN_TYPES);
+      if (state.stainSetting === 'random') {
+        const chosen = keys[(state.currentRound - 1) % keys.length];
+        state.currentStain = STAIN_TYPES[chosen];
+      } else {
+        state.currentStain = STAIN_TYPES[state.stainSetting] || STAIN_TYPES.curry;
+      }
+    }
+
+    function setupNewRound(roundNum) {
+      state.currentRound = roundNum;
+      state.step = 1;
+      state.penPickedUp = false;
+      state.pokeCount = 0;
+      state.isAnimating = false;
+
+      pickStainForRound();
+      wrinkleAmount = 1.0;
+      applyShirtWrinkles(1.0);
+      redrawShirtTexture(1.0);
+
+      // 重置去漬筆與筆蓋位置
+      penGroup.add(penCapGroup);
+      penCapGroup.position.set(0, -1.18, 0);
+      penCapGroup.rotation.set(0, 0, 0);
+      penGroup.position.copy(penRestPos);
+      penGroup.rotation.copy(penRestRot);
+
+      document.getElementById('round-indicator').textContent = `第 ${state.currentRound} / ${state.totalRounds} 題`;
+      updateUIAndGuidance(state.started);
+    }
+
+    function renderStarsBar() {
+      const bar = document.getElementById('stars-bar');
+      bar.innerHTML = '';
+      for (let i = 0; i < state.totalRounds; i++) {
+        const span = document.createElement('span');
+        span.className = 'text-xl md:text-2xl';
+        span.textContent = i < state.starsEarned ? '⭐' : '☆';
+        span.style.opacity = i < state.starsEarned ? '1' : '0.35';
+        bar.appendChild(span);
+      }
+    }
+
+    function updateUIAndGuidance(shouldSpeak = true) {
+      // 更新頂部髒污標籤
+      const stainBadge = document.getElementById('stain-badge');
+      stainBadge.className = `inline-flex items-center gap-1.5 ${state.currentStain.badgeBg} ${state.currentStain.badgeText} border-2 ${state.currentStain.badgeBorder} font-black text-base px-3 py-1 rounded-xl`;
+      stainBadge.innerHTML = `<span>${state.currentStain.emoji}</span><span>沾到：${state.currentStain.name}</span>`;
+
+      const stepPill = document.getElementById('step-pill');
+      const stepTitle = document.getElementById('step-title');
+      const stepDesc = document.getElementById('step-desc');
+      const primaryBtn = document.getElementById('btn-primary-action');
+      const primaryIcon = document.getElementById('primary-btn-icon');
+      const primaryText = document.getElementById('primary-btn-text');
+
+      // 步驟卡片樣式重置
+      [1, 2, 3].forEach((s) => {
+        const card = document.getElementById(`card-step-${s}`);
+        const icon = document.getElementById(`icon-step-${s}`);
+        const check = document.getElementById(`check-step-${s}`);
+        card.classList.remove('active-step-card', 'bg-emerald-50', 'border-emerald-400');
+        card.classList.add('bg-slate-50', 'border-slate-200');
+        check.classList.add('hidden');
+
+        if (s < state.step) {
+          card.classList.remove('bg-slate-50', 'border-slate-200');
+          card.classList.add('bg-emerald-50', 'border-emerald-400');
+          icon.className = 'w-11 h-11 rounded-xl bg-emerald-600 text-white font-black text-xl flex items-center justify-center shrink-0';
+          check.classList.remove('hidden');
+        } else if (s === state.step) {
+          card.classList.remove('bg-slate-50', 'border-slate-200');
+          card.classList.add('active-step-card');
+          icon.className = 'w-11 h-11 rounded-xl bg-blue-600 text-white font-black text-xl flex items-center justify-center shrink-0';
+        } else {
+          icon.className = 'w-11 h-11 rounded-xl bg-slate-300 text-slate-700 font-black text-xl flex items-center justify-center shrink-0';
+        }
+      });
+
+      const pokeWrap = document.getElementById('poke-progress-wrap');
+      const pokeCounter = document.getElementById('poke-counter-text');
+      const pokeBar = document.getElementById('poke-progress-bar');
+
+      let voicePrompt = '';
+
+      if (state.step === 1) {
+        stepPill.textContent = '步驟 1 / 3';
+        stepTitle.textContent = '將衣物放平';
+        stepDesc.innerHTML = '衣服皺皺的！請點一點桌上的<span class="text-blue-700 underline decoration-2">衣服</span>，把衣服鋪平。';
+        primaryBtn.className = 'btn-3d w-full min-h-[68px] bg-blue-600 hover:bg-blue-500 text-white font-black text-2xl rounded-2xl border-2 border-blue-800 px-4 py-3 flex items-center justify-center gap-2.5';
+        primaryIcon.textContent = '👕';
+        primaryText.textContent = '把衣服放平';
+        pokeWrap.classList.add('hidden');
+
+        // 3D 光圈位置
+        guideRing.position.set(-0.5, 0.14, 0.1);
+        guideRing.scale.set(1.8, 1.8, 1);
+        guideRingMat.color.set('#2563eb');
+
+        voicePrompt = `步驟一，將衣物放平。衣服沾到${state.currentStain.name}了，請點一點衣服，把衣服放平。`;
+      } else if (state.step === 2) {
+        stepPill.textContent = '步驟 2 / 3';
+        pokeWrap.classList.remove('hidden');
+        pokeCounter.textContent = `${state.pokeCount} / ${state.pokesRequired} 下`;
+        pokeBar.style.width = `${(state.pokeCount / state.pokesRequired) * 100}%`;
+
+        if (!state.penPickedUp) {
+          stepTitle.textContent = '拿去漬筆';
+          stepDesc.innerHTML = '衣服放平了！請點一點桌上的<span class="text-rose-600 underline decoration-2">去漬筆</span>，打開筆蓋。';
+          primaryBtn.className = 'btn-3d w-full min-h-[68px] bg-rose-600 hover:bg-rose-500 text-white font-black text-2xl rounded-2xl border-2 border-rose-800 px-4 py-3 flex items-center justify-center gap-2.5';
+          primaryIcon.textContent = '🖊️';
+          primaryText.textContent = '拿去漬筆';
+
+          guideRing.position.set(2.35, 0.12, 0.65);
+          guideRing.scale.set(1.35, 1.35, 1);
+          guideRingMat.color.set('#e11d48');
+
+          voicePrompt = '步驟二，拿去漬筆。請點一點桌上的去漬筆，準備去漬。';
+        } else {
+          const leftPokes = state.pokesRequired - state.pokeCount;
+          stepTitle.textContent = '在髒污處戳戳戳';
+          stepDesc.innerHTML = `對準<span class="text-amber-700 underline decoration-2">髒污</span>點一點，還要再戳 <strong>${leftPokes}</strong> 下！`;
+          primaryBtn.className = 'btn-3d w-full min-h-[68px] bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-2xl rounded-2xl border-2 border-amber-700 px-4 py-3 flex items-center justify-center gap-2.5';
+          primaryIcon.textContent = '👇';
+          primaryText.textContent = `戳戳戳 (${state.pokeCount}/${state.pokesRequired})`;
+
+          guideRing.position.set(-0.6, 0.13, 0.25);
+          guideRing.scale.set(1.05, 1.05, 1);
+          guideRingMat.color.set('#f59e0b');
+
+          voicePrompt = '拿好去漬筆了！請點一點衣服上的髒污，戳戳戳把髒污吸出來。';
+        }
+      } else if (state.step === 3) {
+        stepPill.textContent = '步驟 3 / 3';
+        stepTitle.textContent = '髒污去除了！';
+        stepDesc.innerHTML = '哇！髒污不見了，去漬筆也蓋好蓋子囉！點下方按鈕<span class="text-emerald-700 underline decoration-2">完成檢查</span>。';
+        primaryBtn.className = 'btn-3d w-full min-h-[68px] bg-emerald-600 hover:bg-emerald-500 text-white font-black text-2xl rounded-2xl border-2 border-emerald-800 px-4 py-3 flex items-center justify-center gap-2.5';
+        primaryIcon.textContent = '✨';
+        primaryText.textContent = '檢查衣服變乾淨了';
+        pokeWrap.classList.remove('hidden');
+        pokeCounter.textContent = `${state.pokesRequired} / ${state.pokesRequired} 下`;
+        pokeBar.style.width = '100%';
+
+        guideRing.position.set(-0.6, 0.13, 0.25);
+        guideRing.scale.set(1.3, 1.3, 1);
+        guideRingMat.color.set('#10b981');
+
+        voicePrompt = '步驟三，髒污去除了！衣服變得好乾淨，請點選完成檢查。';
+      }
+
+      // 控制鷹架提示顯示 (學習模式 vs 練習模式)
+      const isLearning = state.scaffoldingMode === 'learning';
+      guideRing.visible = isLearning;
+
+      if (shouldSpeak && state.started) {
+        speakText(voicePrompt);
+      }
+      update3DCalloutPositions();
+    }
+
+    // --------------------------------------------------------------------------
+    // 7. 3D 物件投影到 2D 畫面位置（更新浮動提示標籤位置）
+    // --------------------------------------------------------------------------
+    function projectWorldToScreen(vec3) {
+      const v = vec3.clone().project(camera);
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: (v.x * 0.5 + 0.5) * rect.width,
+        y: (-v.y * 0.5 + 0.5) * rect.height,
+        visible: v.z < 1
+      };
+    }
+
+    function update3DCalloutPositions() {
+      const cShirt = document.getElementById('callout-shirt');
+      const cPen = document.getElementById('callout-pen');
+      const cStain = document.getElementById('callout-stain');
+
+      cShirt.classList.add('hidden');
+      cPen.classList.add('hidden');
+      cStain.classList.add('hidden');
+
+      if (!state.started || state.scaffoldingMode !== 'learning') return;
+
+      if (state.step === 1) {
+        const p = projectWorldToScreen(new THREE.Vector3(-0.5, 0.75, 0.1));
+        if (p.visible) {
+          cShirt.style.left = `${p.x}px`;
+          cShirt.style.top = `${p.y}px`;
+          cShirt.classList.remove('hidden');
+        }
+      } else if (state.step === 2 && !state.penPickedUp) {
+        const p = projectWorldToScreen(new THREE.Vector3(2.35, 0.75, 0.65));
+        if (p.visible) {
+          cPen.style.left = `${p.x}px`;
+          cPen.style.top = `${p.y}px`;
+          cPen.classList.remove('hidden');
+        }
+      } else if (state.step === 2 && state.penPickedUp) {
+        const p = projectWorldToScreen(new THREE.Vector3(-0.6, 0.65, 0.25));
+        if (p.visible) {
+          cStain.style.left = `${p.x}px`;
+          cStain.style.top = `${p.y}px`;
+          document.getElementById('callout-stain-text').textContent = `點髒污：戳戳戳 (${state.pokeCount}/${state.pokesRequired})`;
+          cStain.classList.remove('hidden');
+        }
+      }
+    }
+
+    // --------------------------------------------------------------------------
+    // 8. 按鈕與事件綁定
+    // --------------------------------------------------------------------------
+    // 浮動標籤直接可點擊（大幅降低點選難度）
+    document.getElementById('callout-shirt').addEventListener('click', () => onInteractWithObject('shirt'));
+    document.getElementById('callout-pen').addEventListener('click', () => onInteractWithObject('pen'));
+    document.getElementById('callout-stain').addEventListener('click', () => onInteractWithObject('stain'));
+
+    // 右側面板大型主動作按鈕
+    document.getElementById('btn-primary-action').addEventListener('click', () => {
+      if (state.step === 1) {
+        onInteractWithObject('shirt');
+      } else if (state.step === 2) {
+        if (!state.penPickedUp) onInteractWithObject('pen');
+        else onInteractWithObject('stain');
+      } else if (state.step === 3) {
+        onInteractWithObject('shirt');
+      }
+    });
+
+    // 再聽一次說明
+    document.getElementById('btn-speak-now').addEventListener('click', () => {
+      updateUIAndGuidance(true);
+    });
+
+    // 語音開關切換
+    document.getElementById('btn-tts-toggle').addEventListener('click', () => {
+      state.ttsEnabled = !state.ttsEnabled;
+      const icon = document.getElementById('tts-icon');
+      const label = document.getElementById('tts-label');
+      const btn = document.getElementById('btn-tts-toggle');
+
+      if (state.ttsEnabled) {
+        icon.textContent = '🔊';
+        label.textContent = '語音開';
+        btn.classList.remove('bg-slate-500', 'border-slate-700');
+        btn.classList.add('bg-emerald-500', 'border-emerald-700');
+        speakText('語音提示已開啟');
+      } else {
+        icon.textContent = '🔇';
+        label.textContent = '語音關';
+        btn.classList.remove('bg-emerald-500', 'border-emerald-700');
+        btn.classList.add('bg-slate-500', 'border-slate-700');
+        if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      }
+    });
+
+    // 擺正畫面
+    document.getElementById('btn-reset-cam').addEventListener('click', () => {
+      camAzimuth = 0;
+      camElevation = 0.78;
+      camera.position.copy(defaultCamPos);
+      camera.lookAt(defaultCamLookAt);
+    });
+
+    // 開始練習按鈕
+    document.getElementById('btn-start-game').addEventListener('click', () => {
+      ensureAudioContext();
+      document.getElementById('start-modal').classList.add('hidden');
+      state.started = true;
+      state.starsEarned = 0;
+      renderStarsBar();
+      setupNewRound(1);
+    });
+
+    // 回首頁
+    document.getElementById('btn-home').addEventListener('click', () => {
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      state.started = false;
+      document.getElementById('start-modal').classList.remove('hidden');
+      update3DCalloutPositions();
+    });
+
+    // 步驟小幫手 Modal
+    document.getElementById('btn-helper').addEventListener('click', () => {
+      document.getElementById('helper-modal').classList.remove('hidden');
+    });
+    document.getElementById('btn-close-helper').addEventListener('click', () => {
+      document.getElementById('helper-modal').classList.add('hidden');
+    });
+    document.getElementById('btn-helper-ok').addEventListener('click', () => {
+      document.getElementById('helper-modal').classList.add('hidden');
+    });
+    document.getElementById('btn-helper-speak').addEventListener('click', () => {
+      speakText('去漬筆使用三步驟。第一，將衣物放平。第二，拿去漬筆在髒污處戳戳戳。第三，髒污去除了，記得蓋好筆蓋。');
+    });
+
+    // 過關下一題 / 再玩一次
+    document.getElementById('btn-next-round').addEventListener('click', () => {
+      document.getElementById('celebrate-modal').classList.add('hidden');
+      if (state.currentRound < state.totalRounds) {
+        setupNewRound(state.currentRound + 1);
+      } else {
+        state.starsEarned = 0;
+        renderStarsBar();
+        setupNewRound(1);
+      }
+    });
+
+    // 老師設定面板折疊與選項
+    document.getElementById('btn-toggle-settings').addEventListener('click', () => {
+      const panel = document.getElementById('teacher-settings-panel');
+      const arrow = document.getElementById('settings-arrow');
+      const isHidden = panel.classList.contains('hidden');
+      panel.classList.toggle('hidden');
+      arrow.textContent = isHidden ? '▼' : '▶';
+    });
+
+    document.querySelectorAll('.poke-opt-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.poke-opt-btn').forEach((b) => {
+          b.className = 'poke-opt-btn font-black py-2 rounded-xl border-2 border-slate-300 bg-slate-50';
+        });
+        btn.className = 'poke-opt-btn font-black py-2 rounded-xl border-2 border-blue-600 bg-blue-100 text-blue-900';
+        state.pokesRequired = Number(btn.dataset.pokes);
+      });
+    });
+
+    document.querySelectorAll('.round-opt-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.round-opt-btn').forEach((b) => {
+          b.className = 'round-opt-btn font-black py-2 rounded-xl border-2 border-slate-300 bg-slate-50';
+        });
+        btn.className = 'round-opt-btn font-black py-2 rounded-xl border-2 border-blue-600 bg-blue-100 text-blue-900';
+        state.totalRounds = Number(btn.dataset.rounds);
+      });
+    });
+
+    document.getElementById('btn-apply-restart').addEventListener('click', () => {
+      state.scaffoldingMode = document.getElementById('setting-mode').value;
+      state.stainSetting = document.getElementById('setting-stain').value;
+      state.starsEarned = 0;
+      renderStarsBar();
+      setupNewRound(1);
+      showGentleFeedback('已套用新的教學設定！', false);
+    });
+
+    // --------------------------------------------------------------------------
+    // 9. ResizeObserver 自適應畫布與主渲染迴圈
+    // --------------------------------------------------------------------------
+    function handleResize() {
+      const width = viewportPane.clientWidth;
+      const height = viewportPane.clientHeight;
+      if (width <= 0 || height <= 0) return;
+
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height, false);
+      update3DCalloutPositions();
+    }
+
+    const resizeObserver = new ResizeObserver(() => handleResize());
+    resizeObserver.observe(viewportPane);
+
+    let clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const elapsed = clock.getElapsedTime();
+
+      // 學習模式光圈呼吸脈動
+      if (guideRing.visible) {
+        const pulse = 1 + Math.sin(elapsed * 4.5) * 0.08;
+        guideRing.scale.x *= 0.9;
+        guideRing.scale.y *= 0.9;
+        const baseScale = state.step === 1 ? 1.8 : state.step === 2 && !state.penPickedUp ? 1.35 : 1.1;
+        guideRing.scale.set(baseScale * pulse, baseScale * pulse, 1);
+        guideRingMat.opacity = 0.55 + Math.sin(elapsed * 4.5) * 0.3;
+      }
+
+      // 拿著去漬筆待機時的輕微上下提示律動
+      if (state.step === 2 && state.penPickedUp && !state.isAnimating) {
+        penGroup.position.y = 1.95 + Math.sin(elapsed * 5) * 0.07;
+      }
+
+      // 更新水珠/星星粒子
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.mesh.position.x += p.vx;
+        p.mesh.position.y += p.vy;
+        p.mesh.position.z += p.vz;
+        p.vy -= 0.0025;
+        p.life -= 0.028;
+        p.mesh.material.opacity = Math.max(0, p.life);
+        if (p.life <= 0) {
+          scene.remove(p.mesh);
+          p.mesh.material.dispose();
+          particles.splice(i, 1);
+        }
+      }
+
+      update3DCalloutPositions();
+      renderer.render(scene, camera);
+    }
+
+    window.onload = function () {
+      applyShirtWrinkles(1.0);
+      redrawShirtTexture(1.0);
+      renderStarsBar();
+      handleResize();
+      animate();
+    };
+  </script>
+</body>
+</html>
